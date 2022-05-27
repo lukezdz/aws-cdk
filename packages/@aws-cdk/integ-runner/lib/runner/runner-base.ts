@@ -58,9 +58,59 @@ export interface IntegRunnerOptions {
 }
 
 /**
+ * The different components of a test name
+ */
+export interface TestNameParts {
+  /**
+   * (Absolute) path to the file
+   */
+  readonly fileName: string;
+
+  /**
+   * Directory the test is in
+   */
+  readonly directory: string;
+
+  /**
+   * Display name for the test
+   */
+  readonly testName: string;
+
+  /**
+   * Full path of the snapshot directory for this test
+   */
+  readonly snapshotDir: string;
+}
+
+/**
  * Represents an Integration test runner
  */
 export abstract class IntegRunner {
+  /**
+   * Parse a test name into parts
+   */
+  public static testNameFromFile(fileName: string, rootDirectory: string): TestNameParts {
+    // Make absolute
+    fileName = path.resolve(fileName);
+    const parsed = path.parse(fileName);
+
+    const baseTestName = parsed.name.slice(6); // Leave name without 'integ.' and '.ts'
+
+    // if we are running in a package directory then juse use the fileName
+    // as the testname, but if we are running in a parent directory with
+    // multiple packages then use the directory/filename as the testname
+    const testName = parsed.dir === path.join(rootDirectory, 'test')
+      ? baseTestName
+      : path.join(path.relative(rootDirectory, parsed.dir), baseTestName);
+
+    return {
+      fileName,
+      testName,
+      directory: parsed.dir,
+      snapshotDir: path.resolve(parsed.dir, `${baseTestName}.integ.snapshot`),
+    };
+  }
+
   /**
    * The directory where the snapshot will be stored
    */
@@ -133,22 +183,12 @@ export abstract class IntegRunner {
   private legacyContext?: Record<string, any>;
 
   constructor(options: IntegRunnerOptions) {
-    const parsed = path.parse(options.fileName);
-    this.directory = parsed.dir;
-    const testName = parsed.name.slice(6);
-
-    // if we are running in a package directory then juse use the fileName
-    // as the testname, but if we are running in a parent directory with
-    // multiple packages then use the directory/filename as the testname
-    if (parsed.dir === 'test') {
-      this.testName = testName;
-    } else {
-      const relativePath = path.relative(options.directory, parsed.dir);
-      this.testName = `${relativePath ? relativePath + '/' : ''}${parsed.name}`;
-    }
-    this.snapshotDir = path.join(this.directory, `${testName}.integ.snapshot`);
-    this.relativeSnapshotDir = `${testName}.integ.snapshot`;
-    this.sourceFilePath = path.join(this.directory, parsed.base);
+    const parsed = IntegRunner.testNameFromFile(options.fileName, options.directory);
+    this.directory = parsed.directory;
+    this.testName = parsed.testName;
+    this.snapshotDir = parsed.snapshotDir;
+    this.relativeSnapshotDir = path.relative(this.directory, this.snapshotDir);
+    this.sourceFilePath = parsed.fileName;
     this.cdkContextPath = path.join(this.directory, 'cdk.context.json');
 
     this.cdk = options.cdk ?? new CdkCliWrapper({
@@ -157,8 +197,8 @@ export abstract class IntegRunner {
         ...options.env,
       },
     });
-    this.cdkOutDir = options.integOutDir ?? `${CDK_OUTDIR_PREFIX}.${testName}`;
-    this.cdkApp = `node ${parsed.base}`;
+    this.cdkOutDir = options.integOutDir ?? `${CDK_OUTDIR_PREFIX}.${this.testName}`;
+    this.cdkApp = `node ${this.sourceFilePath}`;
     this.profile = options.profile;
     if (this.hasSnapshot()) {
       this.expectedTestSuite = this.loadManifest();

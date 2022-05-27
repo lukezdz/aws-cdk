@@ -1,5 +1,5 @@
 import * as workerpool from 'workerpool';
-import { IntegSnapshotRunner, IntegTestRunner } from '../../runner';
+import { IntegRunner, IntegSnapshotRunner, IntegTestRunner } from '../../runner';
 import { IntegTestConfig } from '../../runner/integration-tests';
 import { DiagnosticReason, IntegTestWorkerConfig, SnapshotVerificationOptions, Diagnostic, formatAssertionResults } from '../common';
 import { IntegTestBatchRequest } from '../integ-test-worker';
@@ -86,9 +86,12 @@ export function integTestWorker(request: IntegTestBatchRequest): IntegTestWorker
  */
 export function snapshotTestWorker(test: IntegTestConfig, options: SnapshotVerificationOptions = {}): IntegTestWorkerConfig[] {
   const failedTests = new Array<IntegTestWorkerConfig>();
-  const runner = new IntegSnapshotRunner({ fileName: test.fileName, directory: test.directory });
   const start = Date.now();
+
+  const testName = IntegRunner.testNameFromFile(test.fileName, test.directory);
+
   try {
+    const runner = new IntegSnapshotRunner({ fileName: test.fileName, directory: test.directory });
     if (!runner.hasSnapshot()) {
       workerpool.workerEmit({
         reason: DiagnosticReason.NO_SNAPSHOT,
@@ -122,7 +125,7 @@ export function snapshotTestWorker(test: IntegTestConfig, options: SnapshotVerif
     failedTests.push(test);
     workerpool.workerEmit({
       message: e.message,
-      testName: runner.testName,
+      testName: testName.testName,
       reason: DiagnosticReason.SNAPSHOT_FAILED,
       duration: (Date.now() - start) / 1000,
     } as Diagnostic);
